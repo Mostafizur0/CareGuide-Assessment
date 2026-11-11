@@ -1,0 +1,42 @@
+# Prometheus scrape configuration.
+#
+# Retention is set on the command line (--storage.tsdb.retention.time=30d) in
+# docker-compose.monitoring.yml, not here: the TSDB retention flag cannot be
+# expressed in prometheus.yml.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    stack: careguide
+
+scrape_configs:
+  # The application exposes Prometheus metrics on /metrics.
+  - job_name: app
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8080"]
+        labels:
+          service: system-health
+
+  # Host metrics: CPU, memory, disk, network.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          service: node-exporter
+
+  # Container metrics: per-container CPU and memory usage.
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels:
+          service: cadvisor
+
+  # Prometheus' own metrics, used by the "app instance down" alert fallback.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: prometheus

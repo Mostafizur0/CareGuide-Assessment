@@ -1,0 +1,37 @@
+# Grafana datasource provisioning.
+#
+# The UIDs are fixed and referenced by the dashboards and alert rules, so they
+# must not be changed without updating those files.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: 2.54.1
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    jsonData:
+      maxLines: 1000
+      timeout: 60
+      derivedFields:
+        - name: request_id
+          matcherRegex: '"request_id":"([^"]+)"'
+          url: ""
+          datasourceUid: ""

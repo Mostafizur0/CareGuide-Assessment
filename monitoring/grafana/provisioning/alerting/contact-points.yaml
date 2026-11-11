@@ -1,0 +1,19 @@
+# Grafana contact point provisioning.
+#
+# The webhook target is a placeholder that resolves to the Docker host. Point
+# it at the real alerting endpoint (Slack, PagerDuty, Alertmanager, ...) by
+# editing `url` and restarting Grafana. Until then the rules still evaluate
+# and are visible in the UI; only the delivery fails.
+
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: careguide-webhook
+    receivers:
+      - uid: careguide-webhook
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: http://host.docker.internal:9093/alerts
+          httpMethod: POST

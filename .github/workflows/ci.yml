@@ -1,0 +1,21 @@
+name: CI
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: pip install -r requirements-dev.txt ruff
+      - run: ruff check app tests
+      - run: coverage run -m pytest && coverage report
+      - uses: hadolint/hadolint-action@v3.1.0
+        with: {dockerfile: Dockerfile}
+      - uses: bewuethr/shellcheck-action@v2.3.0
+        with: {args: 'system_health_app/scripts/system_health.sh'}
+      - uses: docker/build-push-action@v6
+        with: {context: ., tags: devops-assessment:ci, load: true}
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with: {image-ref: devops-assessment:ci, severity: 'CRITICAL', exit-code: '1', ignore-unfixed: true}
