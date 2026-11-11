@@ -1,0 +1,25 @@
+[Unit]
+Description=CareGuide system health monitor
+Documentation=https://github.com/Mostafizur0/CareGuide-Assessment
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/system_health/system_health.sh --log-file /var/log/system_health/health_log.txt --prometheus
+
+# The script exits 1 when a threshold is exceeded and 2 on a hard failure.
+# Exit 1 is a warning, not a unit failure, so the unit is not marked failed.
+# Exit 2 stays a failure and shows up as a failed unit in the journal.
+SuccessExitStatus=1
+
+# The monitor must never compete with the workload it observes.
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=10%
+IOSchedulingPriority=7
+
+# The script is short lived; a generous timeout only guards against a hang.
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

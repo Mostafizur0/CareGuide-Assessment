@@ -1,0 +1,156 @@
+name: system-health
+
+on:
+  push:
+    paths:
+      - 'system_health_app/**'
+      - '.github/workflows/system-health.yml'
+  pull_request:
+    paths:
+      - 'system_health_app/**'
+      - '.github/workflows/system-health.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Syntax check
+        run: bash -n system_health_app/system_health.sh
+
+      - name: Run shellcheck
+        run: shellcheck --severity=style system_health_app/system_health.sh
+
+  functional:
+    name: functional tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run the functional test suite
+        run: |
+          set -euo pipefail
+
+          SCRIPT="system_health_app/system_health.sh"
+          FIXTURES="system_health_app/fixtures/proc"
+          WORKDIR="$(mktemp -d)"
+          LOG="${WORKDIR}/health_log.txt"
+
+          run_case() {
+            # run_case <fixture> <expected exit code>
+            local fixture="$1"
+            local expected="$2"
+            local status=0
+
+            "${SCRIPT}" \
+              --proc-root "${FIXTURES}/${fixture}" \
+              --log-file "${LOG}" \
+              --cpu-interval 0 \
+              >"${WORKDIR}/stdout.txt" 2>"${WORKDIR}/stderr.txt" || status=$?
+
+            if [ "${status}" -ne "${expected}" ]; then
+              echo "expected exit ${expected} for fixture ${fixture}, got ${status}"
+              cat "${WORKDIR}/stderr.txt"
+              exit 1
+            fi
+          }
+
+          echo "::group::--help exits 0"
+          "${SCRIPT}" --help >"${WORKDIR}/help.txt"
+          grep -q -- '--retention-days' "${WORKDIR}/help.txt"
+          grep -q -- '--prometheus' "${WORKDIR}/help.txt"
+          grep -q -- '--json' "${WORKDIR}/help.txt"
+          echo "::endgroup::"
+
+          echo "::group::--version exits 0"
+          "${SCRIPT}" --version
+          echo "::endgroup::"
+
+          echo "::group::unknown flag exits 2"
+          status=0
+          "${SCRIPT}" --not-a-real-flag >"${WORKDIR}/bad.out" 2>"${WORKDIR}/bad.err" || status=$?
+          [ "${status}" -eq 2 ]
+          grep -q 'unknown option' "${WORKDIR}/bad.err"
+          echo "::endgroup::"
+
+          echo "::group::healthy fixture exits 0 with no findings"
+          run_case healthy 0
+          [ ! -s "${WORKDIR}/stderr.txt" ]
+          echo "::endgroup::"
+
+          echo "::group::warning fixture exits 1 and reports [WARNING]"
+          run_case warning 1
+          grep -q '\[WARNING\]' "${WORKDIR}/stderr.txt"
+          echo "::endgroup::"
+
+          echo "::group::critical fixture exits 2 and reports [CRITICAL]"
+          run_case critical 2
+          grep -q '\[CRITICAL\]' "${WORKDIR}/stderr.txt"
+          echo "::endgroup::"
+
+          echo "::group::--json prints a single valid JSON object"
+          status=0
+          "${SCRIPT}" \
+            --proc-root "${FIXTURES}/warning" \
+            --log-file "${LOG}" \
+            --cpu-interval 0 \
+            --json >"${WORKDIR}/report.json" 2>/dev/null || status=$?
+          [ "${status}" -eq 1 ]
+          jq -e . "${WORKDIR}/report.json" >/dev/null
+          jq -e '.status == "warning"' "${WORKDIR}/report.json" >/dev/null
+          jq -e '.exit_code == 1' "${WORKDIR}/report.json" >/dev/null
+          jq -e '.cpu.usage_percent > 0' "${WORKDIR}/report.json" >/dev/null
+          jq -e '.disks | length > 0' "${WORKDIR}/report.json" >/dev/null
+          echo "::endgroup::"
+
+          echo "::group::the log grows by one JSON line per run"
+          before="$(wc -l <"${LOG}")"
+          "${SCRIPT}" --proc-root "${FIXTURES}/healthy" --log-file "${LOG}" --cpu-interval 0 >/dev/null 2>&1
+          after="$(wc -l <"${LOG}")"
+          [ "$((after - before))" -eq 1 ]
+          jq -e . "${LOG}" >/dev/null
+          echo "::endgroup::"
+
+          echo "::group::retention removes stale entries"
+          printf '{"timestamp":"2020-01-01T00:00:00Z","epoch":1577836800,"status":"healthy"}\n' >"${LOG}"
+          "${SCRIPT}" --proc-root "${FIXTURES}/healthy" --log-file "${LOG}" --cpu-interval 0 --retention-days 1 >/dev/null 2>&1
+          stale="$(grep -c '1577836800' "${LOG}" || true)"
+          [ "${stale}" -eq 0 ]
+          echo "::endgroup::"
+
+          echo "::group::--prometheus writes the textfile metrics"
+          status=0
+          "${SCRIPT}" \
+            --proc-root "${FIXTURES}/warning" \
+            --log-file "${LOG}" \
+            --cpu-interval 0 \
+            --prometheus \
+            --prometheus-dir "${WORKDIR}/prom" >/dev/null 2>&1 || status=$?
+          [ "${status}" -eq 1 ]
+          PROM="${WORKDIR}/prom/system_health.prom"
+          [ -f "${PROM}" ]
+          grep -q 'system_health_cpu_usage_percent' "${PROM}"
+          grep -q 'system_health_memory_usage_percent' "${PROM}"
+          grep -q 'system_health_disk_usage_percent' "${PROM}"
+          grep -q 'system_health_status 1' "${PROM}"
+          grep -q '# TYPE system_health_status gauge' "${PROM}"
+          echo "::endgroup::"
+
+          echo "::group::every log line stays valid JSON"
+          while IFS= read -r line; do
+            printf '%s' "${line}" | jq -e . >/dev/null
+          done <"${LOG}"
+          echo "::endgroup::"
+
+          echo "All functional checks passed."

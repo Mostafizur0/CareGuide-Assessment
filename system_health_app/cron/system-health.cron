@@ -1,0 +1,16 @@
+# CareGuide system health monitor - cron schedule
+#
+# Install with:
+#   sudo cp system_health_app/cron/system-health.cron /etc/cron.d/system-health
+#   sudo chown root:root /etc/cron.d/system-health
+#   sudo chmod 0644 /etc/cron.d/system-health
+#
+# The file must end with a newline and the schedule must include a user
+# field, otherwise cron ignores it.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Every 5 minutes. The exit code of the script is the monitoring signal:
+#   0 = healthy, 1 = warning, 2 = critical.
+*/5 * * * * root /opt/system_health/system_health.sh --log-file /var/log/system_health/health_log.txt --prometheus >> /var/log/system_health/cron.log 2>&1

@@ -1,0 +1,14 @@
+[Unit]
+Description=Run the CareGuide system health monitor every 5 minutes
+Documentation=https://github.com/Mostafizur0/CareGuide-Assessment
+
+[Timer]
+Unit=system-health.service
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
