@@ -309,8 +309,8 @@ groups:
         executionErrorState: Error
         for: 5m
         annotations:
-          summary: "Host root filesystem above 80% usage"
-          description: "Disk usage on the host root filesystem has been above 80% for 5 minutes."
+          summary: "Host filesystem usage above 80%"
+          description: "The most used real filesystem on the host has been above 80% for 5 minutes. Virtual filesystems (tmpfs, overlay, squashfs, ramfs, erofs) are excluded."
           dashboardUid: careguide-host
         labels:
           severity: warning

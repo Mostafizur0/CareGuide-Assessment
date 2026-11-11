@@ -357,9 +357,54 @@ spec:
             fsGroup: 10001
             seccompProfile:
               type: RuntimeDefault
+          initContainers:
+            # hostPath volumes ignore fsGroup: kubelet creates the directory
+            # as root:root, so the agent (uid 10001) cannot write its log
+            # there. This initContainer hands the directory to the agent's
+            # group and nothing else. It needs CAP_CHOWN, so it runs as root
+            # while the workload container stays non-root.
+            - name: prepare-log-dir
+              image: careguide/system-health-agent:1.0.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -eu
+                  # chown needs CAP_CHOWN; chmod is deliberately not used
+                  # because it would need CAP_FOWNER as well. The directory
+                  # keeps its 0755 mode, which still gives uid 10001 write
+                  # access once it owns the directory.
+                  chown 10001:10001 /var/log/system-health
+              securityContext:
+                runAsUser: 0
+                runAsGroup: 0
+                runAsNonRoot: false
+                privileged: false
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                  add:
+                    - CHOWN
+              resources:
+                requests:
+                  memory: 32Mi
+                  cpu: 50m
+                limits:
+                  memory: 64Mi
+                  cpu: 100m
+              volumeMounts:
+                - name: log
+                  mountPath: /var/log/system-health
           containers:
             - name: health-check
-              image: alpine:3.21
+              # The agent image carries bash, procps and coreutils baked in.
+              # Installing them at run time is impossible here: apk must write
+              # /lib/apk/db, and this container runs non-root with a read-only
+              # root filesystem.
+              image: careguide/system-health-agent:1.0.0
               imagePullPolicy: IfNotPresent
               securityContext:
                 allowPrivilegeEscalation: false
@@ -371,12 +416,9 @@ spec:
                   drop:
                     - ALL
               command:
-                - /bin/sh
-                - -c
-                - |
-                  set -eu
-                  apk add --no-cache bash procps coreutils >/dev/null
-                  exec /opt/scripts/system_health.sh --json
+                - /bin/bash
+                - /opt/scripts/system_health.sh
+                - --json
               env:
                 # The script rotates this file at 1 MB.
                 - name: HEALTH_LOG_FILE
@@ -394,11 +436,6 @@ spec:
                   readOnly: true
                 - name: log
                   mountPath: /var/log/system-health
-                # apk needs a writable root to install packages.
-                - name: tmp
-                  mountPath: /tmp
-                - name: apk-cache
-                  mountPath: /var/cache/apk
           volumes:
             - name: script
               configMap:
@@ -410,7 +447,3 @@ spec:
               hostPath:
                 path: /var/log/system-health
                 type: DirectoryOrCreate
-            - name: tmp
-              emptyDir: {}
-            - name: apk-cache
-              emptyDir: {}

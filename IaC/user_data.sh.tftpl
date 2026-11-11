@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euxo pipefail
+dnf update -y
+dnf install -y docker amazon-cloudwatch-agent awscli-2 curl
+systemctl enable --now docker
+mkdir -p /opt/devops
+cat >/opt/devops/deploy.sh <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+new="$1"; user="$2"; 
+old=$(docker inspect --format '{{.Config.Image}}' devops-app 2>/dev/null || true)
+aws ssm get-parameter --name /devops/ghcr-read-token --with-decryption --query Parameter.Value --output text | docker login ghcr.io -u "$user" --password-stdin
+docker pull "$new"
+docker rm -f devops-app 2>/dev/null || true
+docker run -d --name devops-app --restart unless-stopped -p 80:8000 -e ENVIRONMENT=production "$new"
+sleep 8
+if ! curl -fsS http://127.0.0.1/health >/dev/null; then
+ docker rm -f devops-app || true
+ if [ -n "$old" ]; then docker run -d --name devops-app --restart unless-stopped -p 80:8000 -e ENVIRONMENT=production "$old"; fi
+ exit 1
+fi
+SCRIPT
+chmod 700 /opt/devops/deploy.sh
+# shellcheck disable=SC2154 # Terraform substitutes this template variable.
+aws configure set region "${aws_region}"
+cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'JSON'
+{"logs":{"logs_collected":{"files":{"collect_list":[{"file_path":"/var/lib/docker/containers/*/*.log","log_group_name":"${log_group}","log_stream_name":"{instance_id}/{container_id}","retention_in_days":14}]}}}}
+JSON
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+# shellcheck disable=SC2154 # Terraform substitutes this template variable.
+aws ssm get-parameter --name /devops/ghcr-read-token --with-decryption --query Parameter.Value --output text | docker login ghcr.io -u "${ghcr_username}" --password-stdin
+# shellcheck disable=SC2154 # Terraform substitutes this template variable.
+docker pull "${image}"
+# shellcheck disable=SC2154 # Terraform substitutes these template variables.
+docker run -d --name devops-app --restart unless-stopped -p 80:8000 -e ENVIRONMENT="${environment}" "${image}"
