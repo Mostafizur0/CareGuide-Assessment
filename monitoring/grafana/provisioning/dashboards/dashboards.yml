@@ -1,0 +1,20 @@
+# Grafana dashboard provider.
+#
+# Dashboards are loaded from the read-only bind mount below. allowUiUpdates
+# is false so the JSON files in the repository stay the source of truth.
+
+apiVersion: 1
+
+providers:
+  - name: careguide
+    orgId: 1
+    # Matched by name: the alerting provisioning creates this folder first,
+    # so pinning a folderUid here would clash with the existing folder.
+    folder: CareGuide
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

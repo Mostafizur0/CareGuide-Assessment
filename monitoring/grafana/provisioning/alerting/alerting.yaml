@@ -1,0 +1,467 @@
+# Grafana unified alerting rules.
+#
+# Each rule is a Prometheus query (A) reduced to a single value (C) and then
+# evaluated against a threshold (D). The rule fires when the threshold stage
+# reports the breach.
+#
+# Six rules cover the four examples required by the assessment (app down,
+# high error rate, host disk above 80%, container memory near its limit) plus
+# host CPU saturation and application latency.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: careguide-availability
+    folder: CareGuide
+    interval: 1m
+    rules:
+      - uid: careguide-app-down
+        title: App instance down
+        condition: D
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: up{job="app"}
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 15000
+              maxDataPoints: 43200
+              reducer: last
+              refId: C
+              type: reduce
+          - refId: D
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.5]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: C
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: D
+              type: threshold
+        noDataState: NoData
+        executionErrorState: Error
+        for: 1m
+        annotations:
+          summary: "CareGuide application instance is down"
+          description: "Prometheus cannot scrape the application (/metrics on app:8080) for more than 1 minute."
+          dashboardUid: careguide-application
+        labels:
+          severity: critical
+          service: system-health
+        notification_settings:
+          receiver: careguide-webhook
+
+  - orgId: 1
+    name: careguide-errors
+    folder: CareGuide
+    interval: 1m
+    rules:
+      - uid: careguide-high-error-rate
+        title: Application high error rate
+        condition: D
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: sum(rate(http_request_errors_total{job="app"}[5m])) / clamp_min(sum(rate(http_requests_total{job="app"}[5m])), 0.001)
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 15000
+              maxDataPoints: 43200
+              reducer: last
+              refId: C
+              type: reduce
+          - refId: D
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.05]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: C
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: D
+              type: threshold
+        noDataState: NoData
+        executionErrorState: Error
+        for: 5m
+        annotations:
+          summary: "Application error rate above 5%"
+          description: "More than 5% of the requests served in the last 5 minutes returned 4xx or 5xx."
+          dashboardUid: careguide-application
+        labels:
+          severity: warning
+          service: system-health
+        notification_settings:
+          receiver: careguide-webhook
+
+      - uid: careguide-high-latency-p95
+        title: Application latency p95 above 1s
+        condition: D
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="app"}[5m])))
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 15000
+              maxDataPoints: 43200
+              reducer: last
+              refId: C
+              type: reduce
+          - refId: D
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: C
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: D
+              type: threshold
+        noDataState: NoData
+        executionErrorState: Error
+        for: 5m
+        annotations:
+          summary: "Application p95 latency above 1 second"
+          description: "The 95th percentile of the request latency has been above 1s for 5 minutes."
+          dashboardUid: careguide-application
+        labels:
+          severity: warning
+          service: system-health
+        notification_settings:
+          receiver: careguide-webhook
+
+  - orgId: 1
+    name: careguide-host
+    folder: CareGuide
+    interval: 1m
+    rules:
+      - uid: careguide-host-disk-usage
+        title: Host disk usage above 80%
+        condition: D
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: max(100 - (node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs|erofs"} / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs|erofs"} * 100))
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 15000
+              maxDataPoints: 43200
+              reducer: last
+              refId: C
+              type: reduce
+          - refId: D
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [80]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: C
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: D
+              type: threshold
+        noDataState: NoData
+        executionErrorState: Error
+        for: 5m
+        annotations:
+          summary: "Host filesystem usage above 80%"
+          description: "The most used real filesystem on the host has been above 80% for 5 minutes. Virtual filesystems (tmpfs, overlay, squashfs, ramfs, erofs) are excluded."
+          dashboardUid: careguide-host
+        labels:
+          severity: warning
+        notification_settings:
+          receiver: careguide-webhook
+
+      - uid: careguide-host-cpu-saturation
+        title: Host CPU saturation above 90%
+        condition: D
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 100 - (avg(rate(node_cpu_seconds_total{job="node",mode="idle"}[5m])) * 100)
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 15000
+              maxDataPoints: 43200
+              reducer: last
+              refId: C
+              type: reduce
+          - refId: D
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [90]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: C
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: D
+              type: threshold
+        noDataState: NoData
+        executionErrorState: Error
+        for: 10m
+        annotations:
+          summary: "Host CPU usage above 90%"
+          description: "Host CPU utilisation has been above 90% for 10 minutes."
+          dashboardUid: careguide-host
+        labels:
+          severity: warning
+        notification_settings:
+          receiver: careguide-webhook
+
+  - orgId: 1
+    name: careguide-containers
+    folder: CareGuide
+    interval: 1m
+    rules:
+      - uid: careguide-container-memory-near-limit
+        title: Container memory close to its limit
+        condition: D
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: container_memory_usage_bytes{job="cadvisor",name!=""} / on(name) group_left() (container_spec_memory_limit_bytes{job="cadvisor",name!=""} > 0)
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 15000
+              maxDataPoints: 43200
+              reducer: last
+              refId: C
+              type: reduce
+          - refId: D
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.9]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: C
+              intervalMs: 15000
+              maxDataPoints: 43200
+              refId: D
+              type: threshold
+        noDataState: NoData
+        executionErrorState: Error
+        for: 5m
+        annotations:
+          summary: "Container memory usage above 90% of its limit"
+          description: "A container is using more than 90% of the memory limit configured for it."
+          dashboardUid: careguide-containers
+        labels:
+          severity: warning
+        notification_settings:
+          receiver: careguide-webhook

@@ -1,0 +1,147 @@
+# The system-health deployment.
+#
+# Three replicas for high availability, hardened with a production-grade
+# securityContext, health checked on /health, and updated with a rolling
+# strategy that keeps 75% of the fleet available during a rollout.
+#
+# Image: published by .github/workflows/release.yml to
+# ghcr.io/<owner>/<repo>. Override the tag with:
+#   kubectl -n careguide-system-health set image deployment/system-health \
+#     system-health=ghcr.io/mostafizur0/careguide-assessment:sha-<commit>
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: system-health
+  namespace: careguide-system-health
+  labels:
+    app.kubernetes.io/name: system-health
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: careguide
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    # Roll back with: kubectl -n careguide-system-health rollout undo deployment/system-health
+    careguide.dev/rollback-command: "kubectl rollout undo deployment/system-health"
+spec:
+  replicas: 3
+  revisionHistoryLimit: 10
+  # A wedged rollout is marked failed after 10 minutes instead of hanging
+  # forever, which is what makes the rollback above safe to run.
+  progressDeadlineSeconds: 600
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: system-health
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # 25% of the fleet may be taken down and 25% extra may be created.
+      # With 3 replicas this keeps at least 2 pods serving throughout.
+      maxUnavailable: 25%
+      maxSurge: 25%
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: system-health
+        app.kubernetes.io/component: application
+        app.kubernetes.io/part-of: careguide
+        app.kubernetes.io/version: "1.0.0"
+    spec:
+      serviceAccountName: system-health
+      automountServiceAccountToken: false
+      # The app drains in-flight requests for GRACEFUL_TIMEOUT seconds, so the
+      # pod gets longer than that to finish before SIGKILL.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        # Prefer spreading the replicas across nodes; with a single-node
+        # cluster this stays a preference and never blocks scheduling.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: system-health
+      containers:
+        - name: system-health
+          image: ghcr.io/mostafizur0/careguide-assessment:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: system-health-config
+          env:
+            # Secrets are referenced, never inlined.
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: system-health-secrets
+                  key: SECRET_KEY
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: system-health-secrets
+                  key: API_TOKEN
+          resources:
+            requests:
+              # Kubernetes' "m" suffix means MILLI, so "256m" would be 0.256
+              # bytes. The binary suffix "Mi" is used for memory throughout.
+              memory: 256Mi
+              cpu: 500m
+            limits:
+              memory: 600Mi
+              # The task asked for "cpus: 1m" as a limit, but 1m is one
+              # millicore — far below the 500m request, and the API server
+              # rejects a limit lower than the request. One full core is used.
+              cpu: "1"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            # 30 * 5s = up to 150s for the first successful start.
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            # readOnlyRootFilesystem leaves no writable /tmp for the runtime.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,28 @@
+# ClusterIP Service in front of the deployment.
+#
+# The container listens on 8080 (see app/Dockerfile), so the service targets
+# 8080 directly. The earlier 80 -> 8000 mapping did not match the image.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: system-health
+  namespace: careguide-system-health
+  labels:
+    app.kubernetes.io/name: system-health
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: careguide
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: system-health
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  # Only ready pods receive traffic, so the Ingress never routes to a pod
+  # that is still starting up.
+  publishNotReadyAddresses: false
+  sessionAffinity: None
+

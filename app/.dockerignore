@@ -1,0 +1,47 @@
+# Keep the build context small and the image free of local artefacts.
+
+# Version control and CI metadata
+.git
+.gitignore
+.github
+.gitattributes
+ci.yml
+
+# Documentation and container build files
+README.md
+Dockerfile
+.dockerignore
+
+# Python virtual environments
+venv
+env
+.venv
+
+# Python caches and build artefacts
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+.eggs
+build
+dist
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+coverage.xml
+htmlcov
+
+# Tests are not part of the runtime image
+tests
+
+# Local configuration and secrets
+.env
+.env.*
+*.local
+
+# Editor and OS cruft
+.idea
+.vscode
+*.swp
+.DS_Store

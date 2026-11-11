@@ -1,0 +1,104 @@
+// Grafana Alloy — container log collection pipeline.
+//
+// Docker service discovery finds every running container on the host, the
+// Docker log source tails them, and the processing stages turn the app's
+// structured JSON lines into low-cardinality Loki labels.
+//
+// Label policy (cardinality is deliberately kept low):
+//   labels             = container, service, level, route
+//   structured metadata = request_id, status_code, method, duration_ms
+//
+// The raw `path` field is never promoted to a label: unmatched paths would
+// create an unbounded number of streams.
+
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
+}
+
+// Give every discovered container a readable "container" label.
+//
+// The internal __meta_* labels are intentionally left in place: loki.source.docker
+// needs __meta_docker_container_id to attach a reader to a container. It strips
+// the double-underscore labels itself before shipping the entry to Loki.
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "container"
+    replacement   = "$1"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.process.app.receiver]
+}
+
+loki.process "app" {
+  forward_to = [loki.write.default.receiver]
+
+  // Only the application container emits the structured JSON log format.
+  // Every other container keeps just its `container` label.
+  stage.match {
+    selector = "{container=~\"careguide-app.*\"}"
+
+    // Parse the structured JSON log line produced by the FastAPI service.
+    // A line that is not valid JSON simply yields no extracted values; the
+    // entry is still forwarded with its default labels.
+    stage.json {
+      expressions = {
+        level       = "level",
+        route       = "route",
+        status_code = "status_code",
+        request_id  = "request_id",
+        method      = "method",
+        duration_ms = "duration_ms",
+      }
+    }
+
+    // Bound the route label. The application reports the route template for
+    // matched routes, but falls back to the raw path for unmatched ones
+    // (404s), which would make the label unbounded. Only the known route
+    // templates survive; everything else collapses into "other".
+    stage.template {
+      source   = "route_label"
+      template = `{{ $r := .route | default "" }}{{ if or (eq $r "/") (eq $r "/health") (eq $r "/metrics") (eq $r "/docs") (eq $r "/docs/oauth2-redirect") (eq $r "/openapi.json") (eq $r "/redoc") }}{{ $r }}{{ else }}other{{ end }}`
+    }
+
+    // Low-cardinality labels: bounded by the number of routes and log levels.
+    stage.labels {
+      values = {
+        level = "",
+        route = "route_label",
+      }
+    }
+
+    // High-cardinality fields stay out of the index but remain queryable and
+    // filterable in Grafana Explore.
+    stage.structured_metadata {
+      values = {
+        request_id  = "",
+        status_code = "",
+        method      = "",
+        duration_ms = "",
+      }
+    }
+
+    // Static label identifying the emitting service.
+    stage.static_labels {
+      values = {
+        service = "system-health",
+      }
+    }
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

@@ -1,0 +1,36 @@
+# Ingress exposing the ClusterIP Service.
+#
+# ingressClassName is set to "traefik". The kind cluster this project targets
+# must therefore have a Traefik controller installed, e.g.
+#
+#   helm repo add traefik https://traefik.github.io/charts
+#   helm install traefik traefik/traefik -n traefik --create-namespace
+#
+# If the target cluster runs a different controller, change this value (and
+# the pathType to "ImplementationSpecific" for controllers that do not
+# implement Prefix).
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: system-health
+  namespace: careguide-system-health
+  labels:
+    app.kubernetes.io/name: system-health
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: careguide
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: system-health.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: system-health
+                port:
+                  number: 8080
