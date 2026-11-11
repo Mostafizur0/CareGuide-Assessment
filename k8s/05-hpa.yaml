@@ -1,0 +1,61 @@
+# HorizontalPodAutoscaler for the system-health deployment.
+#
+# Requires the metrics-server to be installed in the cluster; without it the
+# HPA reports <unknown> for its targets and cannot scale.
+#
+# CPU target is 70% of the 500m request (350m) and the memory target is 75%
+# of the 256Mi request (192Mi), so the fleet scales out before the pods hit
+# their limits.
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: system-health
+  namespace: careguide-system-health
+  labels:
+    app.kubernetes.io/name: system-health
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: careguide
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: system-health
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleUp:
+      # React quickly to a traffic spike.
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      # Shrink slowly so a brief lull does not flap the replica count.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+        - type: Percent
+          value: 10
+          periodSeconds: 300
+      selectPolicy: Min

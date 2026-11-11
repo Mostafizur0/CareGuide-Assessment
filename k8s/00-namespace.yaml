@@ -1,0 +1,76 @@
+# Namespace, workload identity and namespace-level guard rails for the
+# CareGuide system-health service.
+#
+# The quota is sized for the HPA ceiling (10 replicas) plus headroom, so a
+# runaway scale-out cannot starve the rest of the cluster.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: careguide-system-health
+  labels:
+    app.kubernetes.io/name: system-health
+    app.kubernetes.io/part-of: careguide
+    app.kubernetes.io/managed-by: kubectl
+    # The application pods fully satisfy the "restricted" profile, so the
+    # namespace is enforced at restricted: no pod here may run as root, use
+    # host namespaces, mount hostPath volumes or escalate privileges.
+    # The node-level CronJob needs hostPID and hostPath, which even
+    # "baseline" forbids, so it lives in its own namespace
+    # (careguide-system-health-nodeagent) rather than weakening this one.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# The application talks to no Kubernetes API, so the token is never mounted.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: system-health
+  namespace: careguide-system-health
+  labels:
+    app.kubernetes.io/name: system-health
+    app.kubernetes.io/part-of: careguide
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: system-health-quota
+  namespace: careguide-system-health
+  labels:
+    app.kubernetes.io/name: system-health
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 4Gi
+    limits.cpu: "16"
+    limits.memory: 8Gi
+    # 10 replicas at the HPA ceiling plus the CronJob and rollout surge pods.
+    pods: "30"
+    persistentvolumeclaims: "4"
+---
+# Defaults for any pod created in this namespace that omits explicit resources.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: system-health-limits
+  namespace: careguide-system-health
+  labels:
+    app.kubernetes.io/name: system-health
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+        memory: 600Mi
+      defaultRequest:
+        cpu: 500m
+        memory: 256Mi
+      min:
+        cpu: 100m
+        memory: 64Mi
+      max:
+        cpu: "2"
+        memory: 1Gi

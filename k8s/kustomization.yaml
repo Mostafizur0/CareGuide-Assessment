@@ -1,0 +1,33 @@
+# Kustomize entry point for the CareGuide system-health manifests.
+#
+#   kubectl apply -k k8s/
+#
+# The files are numbered so that a plain `kubectl apply -f k8s/` also applies
+# them in a working order (namespace first, workload last).
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# No global `namespace:` override: each resource names its own namespace.
+# The application lives in careguide-system-health and the node-level agent
+# lives in careguide-system-health-nodeagent, because hostPID and hostPath
+# volumes are forbidden by the Pod Security profile the application
+# namespace enforces.
+
+resources:
+  - 00-namespace.yaml
+  - 01-configmap-secret.yaml
+  - 02-deployment.yaml
+  - 03-service.yaml
+  - 04-ingress.yaml
+  - 05-hpa.yaml
+  - 06-cronjob.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: careguide
+    includeSelectors: false
+
+images:
+  - name: ghcr.io/mostafizur0/careguide-assessment
+    newTag: 1.0.0
