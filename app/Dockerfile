@@ -63,7 +63,7 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     APP_VERSION="${APP_VERSION}" \
     HOST=0.0.0.0 \
-    PORT=8000 \
+    PORT=8080 \
     LOG_LEVEL=INFO \
     LOG_FORMAT=json \
     METRICS_PATH=/metrics \
@@ -86,12 +86,12 @@ COPY --chown=app:app src/ /app/src/
 
 USER app:app
 
-EXPOSE 8000
+EXPOSE 8080
 
 # SIGTERM is the container stop signal, handled by the graceful shutdown path.
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["/opt/venv/bin/python", "-c", "import sys,urllib.request;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)"]
+    CMD ["/opt/venv/bin/python", "-c", "import sys,urllib.request;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3).status==200 else 1)"]
 
 ENTRYPOINT ["/opt/venv/bin/python", "-m", "system_health.main"]

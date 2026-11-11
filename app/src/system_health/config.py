@@ -33,7 +33,7 @@ class Settings:
     app_name: str = field(default_factory=lambda: _env_str("APP_NAME", "system-health"))
     app_version: str = field(default_factory=lambda: _env_str("APP_VERSION", "1.0.0"))
     host: str = field(default_factory=lambda: _env_str("HOST", "0.0.0.0"))
-    port: int = field(default_factory=lambda: _env_int("PORT", 8000))
+    port: int = field(default_factory=lambda: _env_int("PORT", 8080))
     log_level: str = field(default_factory=lambda: _env_str("LOG_LEVEL", "INFO").upper())
     log_format: str = field(default_factory=lambda: _env_str("LOG_FORMAT", "json").lower())
     metrics_path: str = field(default_factory=lambda: _env_str("METRICS_PATH", "/metrics"))

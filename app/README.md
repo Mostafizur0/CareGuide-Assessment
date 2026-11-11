@@ -45,7 +45,7 @@ All settings are read from the environment; every one has a working default.
 | `APP_NAME` | `system-health` | Service name used in logs |
 | `APP_VERSION` | `1.0.0` | Version reported by `/`, `/health` and the OCI label |
 | `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8000` | Bind port |
+| `PORT` | `8080` | Bind port |
 | `LOG_LEVEL` | `INFO` | Root log level |
 | `LOG_FORMAT` | `json` | Log format (only `json` is implemented) |
 | `METRICS_PATH` | `/metrics` | Path the exposition is served on |
@@ -67,7 +67,7 @@ The package lives under `src/`, so either install it or point `PYTHONPATH` at it
 
 ```bash
 PYTHONPATH=src python -m system_health.main
-PYTHONPATH=src uvicorn system_health.main:app --host 0.0.0.0 --port 8000
+PYTHONPATH=src uvicorn system_health.main:app --host 0.0.0.0 --port 8080
 ```
 
 Run the test suite:
@@ -92,14 +92,14 @@ docker build -t careguide/system-health:1.0.0 \
   --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   .
 
-docker run -d --name system-health -p 8000:8000 careguide/system-health:1.0.0
+docker run -d --name system-health -p 8080:8080 careguide/system-health:1.0.0
 ```
 
 Image properties:
 
 - **Base image** — `python:3.13-alpine3.21`, pinned by version.
 - **Non-root** — `USER app:app`, uid/gid `10001`.
-- **Healthcheck** — `HEALTHCHECK` polls `http://127.0.0.1:8000/health` every 30 s
+- **Healthcheck** — `HEALTHCHECK` polls `http://127.0.0.1:8080/health` every 30 s
   using the interpreter from the virtualenv, so no extra package is needed in the image.
 - **Stop signal** — `STOPSIGNAL SIGTERM`, which the service handles gracefully.
 - **OCI labels** — `title`, `description`, `version`, `revision`, `created`, `source`,
